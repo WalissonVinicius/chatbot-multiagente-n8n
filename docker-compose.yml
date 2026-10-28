@@ -1,0 +1,70 @@
+# Sobe o chatbot completo: n8n, Postgres (histórico e FAQ) e Redis (debounce e idempotência).
+# O serviço fake-services só sobe com --profile test (LLM e WhatsApp falsos para o teste).
+services:
+  n8n:
+    image: n8nio/n8n:2.45.5
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?defina N8N_ENCRYPTION_KEY no .env}
+      # O workflow lê a configuração abaixo com $env.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      GENERIC_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      OPENAI_TRANSCRIBE_MODEL: ${OPENAI_TRANSCRIBE_MODEL:-whisper-1}
+      REPLY_URL: ${REPLY_URL:-}
+      HANDOFF_URL: ${HANDOFF_URL:-}
+      DEBOUNCE_SECONDS: ${DEBOUNCE_SECONDS:-15}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/import/workflows:ro
+      - ./credentials:/import/credentials:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Sem porta publicada: só o n8n acessa o banco, pela rede interna do compose.
+    environment:
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: chatbot
+      POSTGRES_DB: chatbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  fake-services:
+    profiles: ["test"]
+    image: node:22-alpine
+    command: node /test/fake-services.mjs
+    volumes:
+      - ./test:/test:ro
+    ports:
+      - "4000:4000"
+
+volumes:
+  n8n_data:
+  postgres_data:

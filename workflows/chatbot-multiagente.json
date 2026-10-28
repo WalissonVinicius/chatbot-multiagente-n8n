@@ -1,0 +1,1281 @@
+{
+  "id": "chatbotMultiAg01",
+  "name": "Chatbot multiagente (WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1. Entrada\nValida o corpo, ignora entregas repetidas do mesmo `messageId` (Redis) e responde 202 na hora.",
+        "height": 620,
+        "width": 1300,
+        "color": 7
+      },
+      "id": "13626573-9759-4aab-ac08-ed0fc42556c6",
+      "name": "Nota entrada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Áudio e debounce\nTranscreve áudio com Whisper. Espera o cliente parar de digitar: só a última execução da conversa segue, e ela pega todas as mensagens pendentes no Postgres de uma vez.",
+        "height": 620,
+        "width": 2000,
+        "color": 5
+      },
+      "id": "cc08697e-23d3-4a95-a44d-07e2bd7c6b5a",
+      "name": "Nota debounce",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1260,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Triagem\nA IA escolhe o setor. Se a resposta vier fora do formato, a conversa vai para uma pessoa.",
+        "height": 620,
+        "width": 1560,
+        "color": 4
+      },
+      "id": "21c5ce7b-b204-4efe-aca1-ae79dd0b7509",
+      "name": "Nota triagem",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Agente do setor\nBusca no FAQ do setor (busca textual do Postgres) e responde só com o que está no FAQ.",
+        "height": 620,
+        "width": 1040,
+        "color": 6
+      },
+      "id": "1f9d8ea5-f6f4-4670-a0d1-2e2d12ab5cd2",
+      "name": "Nota agente",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Transferência e envio\nQuando precisa de gente, manda o resumo para a equipe. Depois envia a resposta e salva no histórico.",
+        "height": 620,
+        "width": 940,
+        "color": 3
+      },
+      "id": "8d3bc672-62c8-470f-a059-2d9dffd4b699",
+      "name": "Nota envio",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2600,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatbot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3ac2826f-1733-465b-abb3-e993567a1027",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "25b4b406-055b-4c29-a850-6ceb8888aeab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formato esperado do corpo:\n// { \"conversationId\": \"5566999990000\", \"type\": \"text\" | \"audio\", \"text\": \"...\", \"audioUrl\": \"https://...\", \"messageId\": \"opcional\" }\nconst body = $input.first().json.body ?? {};\nconst conversationId = String(body.conversationId ?? '').trim();\nconst type = body.type ?? 'text';\nconst text = typeof body.text === 'string' ? body.text.trim() : '';\nconst audioUrl = typeof body.audioUrl === 'string' ? body.audioUrl : '';\nconst errors = [];\n\nif (!/^[\\w.@+-]{1,64}$/.test(conversationId)) errors.push('conversationId inválido');\nif (!['text', 'audio'].includes(type)) errors.push('type deve ser \"text\" ou \"audio\"');\nif (type === 'text' && !text) errors.push('text vazio');\nif (type === 'audio' && !/^https?:\\/\\//.test(audioUrl)) errors.push('audioUrl inválida');\nif (text.length > 4000) errors.push('text passa de 4000 caracteres');\n\nreturn [{\n  json: {\n    valid: errors.length === 0,\n    errors,\n    conversationId,\n    type,\n    text,\n    audioUrl,\n    // Sem messageId, cada entrega conta como mensagem nova.\n    messageId: String(body.messageId ?? $execution.id),\n  },\n}];"
+      },
+      "id": "3953694d-0bcc-4666-a8be-56d451c5693b",
+      "name": "Validar entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bd2d69c2-d42d-4fd1-a8c0-5f28e57f2d9c",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "f21bcf51-9e33-4362-a785-fef95fa334bc",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ errors: $('Validar entrada').first().json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "f1525b36-479a-42d2-a1b8-e64af4068ebb",
+      "name": "Responder 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "=recebida:{{ $('Validar entrada').first().json.messageId }}",
+        "expire": true,
+        "ttl": 3600
+      },
+      "id": "80cfed97-c083-4817-af96-d6a374a4a28b",
+      "name": "Já recebida?",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        660,
+        200
+      ],
+      "credentials": {
+        "redis": {
+          "id": "chatbotRedis0001",
+          "name": "Redis local"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79e3318b-3fa0-448f-a94d-f4e0bd4233d8",
+              "leftValue": "={{ Object.values($json)[0] }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "682405f9-fc8f-469c-a7bd-f5905858a8f2",
+      "name": "Primeira entrega?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"duplicada\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "9a7ecfb0-9661-4e08-afe1-48cd4279e17e",
+      "name": "Responder duplicada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"recebida\"}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "e7d7727a-3520-4454-ac3d-149740bb2e07",
+      "name": "Responder 202",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "09c344b6-bb44-41ca-a90c-895b39a69b48",
+              "leftValue": "={{ $('Validar entrada').first().json.type }}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "39f2e285-eb87-4e7d-a59e-278fdd0236f4",
+      "name": "É áudio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Validar entrada').first().json.audioUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "audio"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "2825db03-ba69-4e6d-a0e0-f00b5a23617c",
+      "name": "Baixar áudio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_BASE_URL }}/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "audio"
+            },
+            {
+              "parameterType": "formData",
+              "name": "model",
+              "value": "={{ $env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "929576c2-7888-4ff0-acc6-381aa4974556",
+      "name": "Transcrever áudio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        40
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const entrada = $('Validar entrada').first().json;\nlet text = entrada.text;\n\nif (entrada.type === 'audio') {\n  const transcricao = $('Transcrever áudio').first().json.text;\n  text = typeof transcricao === 'string' && transcricao.trim()\n    ? transcricao.trim()\n    : '(o cliente mandou um áudio que não deu para transcrever)';\n}\n\nreturn [{ json: { conversationId: entrada.conversationId, text } }];"
+      },
+      "id": "c295f7fb-0865-4aac-a58b-18102ca84ef5",
+      "name": "Texto da mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mensagens (conversation_id, role, content) VALUES ($1, 'user', $2) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.conversationId, $json.text ] }}"
+        }
+      },
+      "id": "ef09b799-892d-4340-a892-b03318148139",
+      "name": "Guardar mensagem",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2200,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "chatbotPostgres1",
+          "name": "Postgres local"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=ultima:{{ $('Validar entrada').first().json.conversationId }}",
+        "value": "={{ $execution.id }}",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 600
+      },
+      "id": "b64a7ff6-48aa-4859-a887-764e7566ee57",
+      "name": "Marcar última",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2420,
+        200
+      ],
+      "credentials": {
+        "redis": {
+          "id": "chatbotRedis0001",
+          "name": "Redis local"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{ Number($env.DEBOUNCE_SECONDS) || 15 }}",
+        "unit": "seconds"
+      },
+      "id": "155271aa-7f76-4d8f-ad2a-303ca4abc6ff",
+      "name": "Esperar o cliente",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        200
+      ],
+      "webhookId": "e6766b74-4155-4ad3-adb5-2774848e0c75"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "ultima",
+        "key": "=ultima:{{ $('Validar entrada').first().json.conversationId }}",
+        "keyType": "string",
+        "options": {}
+      },
+      "id": "dac67aa5-f1b0-49ce-a327-9e1dbb77ebfd",
+      "name": "Ler última",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2860,
+        200
+      ],
+      "credentials": {
+        "redis": {
+          "id": "chatbotRedis0001",
+          "name": "Redis local"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f421c642-82e9-40b7-ac0f-0eb459fa622f",
+              "leftValue": "={{ String($json.ultima) }}",
+              "rightValue": "={{ String($execution.id) }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "2fae0b68-90d0-4d9a-aaa5-dadd1500c2a0",
+      "name": "Sou a última?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3080,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE mensagens SET processed = true\nWHERE conversation_id = $1 AND role = 'user' AND NOT processed\nRETURNING id, content;",
+        "options": {
+          "queryReplacement": "={{ [ $('Validar entrada').first().json.conversationId ] }}"
+        }
+      },
+      "id": "ed157133-7cac-40f2-ae0b-ad5d6959c683",
+      "name": "Pegar pendentes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        0,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "chatbotPostgres1",
+          "name": "Postgres local"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta tudo o que o cliente mandou durante a espera em um texto só.\nconst rows = $input.all().map((item) => item.json).filter((row) => row.id);\nif (rows.length === 0) return [];\n\nrows.sort((a, b) => Number(a.id) - Number(b.id));\n\nreturn [{\n  json: {\n    conversationId: $('Validar entrada').first().json.conversationId,\n    text: rows.map((row) => row.content).join('\\n'),\n    firstId: Number(rows[0].id),\n  },\n}];"
+      },
+      "id": "bc4350e0-4d68-4cc6-a495-64e8eb20e2af",
+      "name": "Juntar mensagens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT role, content FROM (\n  SELECT id, role, content FROM mensagens\n  WHERE conversation_id = $1 AND processed AND id < $2\n  ORDER BY id DESC\n  LIMIT 10\n) ultimas\nORDER BY id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.conversationId, $json.firstId ] }}"
+        }
+      },
+      "id": "c62710dc-437e-4529-a90e-63d74942b2cc",
+      "name": "Buscar histórico",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "chatbotPostgres1",
+          "name": "Postgres local"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const TRIAGEM = [\n  '[TRIAGEM] Você faz a triagem do atendimento do Provedor Exemplo, um provedor de internet.',\n  'Leia a conversa e escolha o setor da última mensagem do cliente:',\n  '- comercial: planos, preços, contratação, instalação, cobertura, mudança de plano.',\n  '- financeiro: boletos, faturas, pagamentos, vencimento, desbloqueio.',\n  '- suporte: internet lenta ou caindo, Wi-Fi, senha, equipamentos, visita técnica.',\n  '- humano: o cliente pede uma pessoa, faz uma reclamação grave ou o assunto não cabe nos outros setores.',\n  'Responda só com JSON: {\"setor\": \"comercial | financeiro | suporte | humano\", \"resumo\": \"uma frase com o pedido do cliente\"}',\n].join('\\n');\n\nconst conversa = $('Juntar mensagens').first().json;\nconst historico = $input.all().map((item) => item.json).filter((row) => row.role && row.content);\n\nconst body = {\n  model: $env.OPENAI_MODEL || 'gpt-5-mini',\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: TRIAGEM },\n    ...historico.map(({ role, content }) => ({ role, content })),\n    { role: 'user', content: conversa.text },\n  ],\n};\n\nreturn [{ json: { ...conversa, historico, body } }];"
+      },
+      "id": "45109879-4143-4c2d-a1d4-06d78f329707",
+      "name": "Montar triagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "962898a1-a728-4e7c-aea0-163c98f55a53",
+      "name": "Triagem",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        800
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const conversa = $('Montar triagem').first().json;\nconst SETORES = ['comercial', 'financeiro', 'suporte', 'humano'];\n\nlet triagem = {};\ntry {\n  triagem = JSON.parse($json.choices[0].message.content);\n} catch {\n  triagem = {};\n}\n\n// Resposta fora do formato vira transferência: melhor uma pessoa do que um chute.\nconst setor = SETORES.includes(triagem.setor) ? triagem.setor : 'humano';\n\nreturn [{\n  json: {\n    conversationId: conversa.conversationId,\n    text: conversa.text,\n    historico: conversa.historico,\n    setor,\n    resumo: String(triagem.resumo || conversa.text).slice(0, 500),\n  },\n}];"
+      },
+      "id": "eefc6be3-2c9c-48e9-af50-bf64490c3ff3",
+      "name": "Ler triagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f584791f-9659-4a4f-a9eb-7798fc12a2a9",
+              "leftValue": "={{ $json.setor }}",
+              "rightValue": "humano",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "ab1d8e6c-b6c1-401b-a602-742dde38823a",
+      "name": "Pediu uma pessoa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pergunta, resposta FROM faq\nWHERE setor = $1\nORDER BY ts_rank(busca, replace(plainto_tsquery('portuguese', $2)::text, '&', '|')::tsquery) DESC, id\nLIMIT 3;",
+        "options": {
+          "queryReplacement": "={{ [ $json.setor, $json.text ] }}"
+        }
+      },
+      "id": "94548267-c5e5-4c49-a19d-d9f70982de33",
+      "name": "Buscar no FAQ",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1540,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "chatbotPostgres1",
+          "name": "Postgres local"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const PERFIS = {\n  comercial: 'Você ajuda o cliente a escolher e contratar um plano.',\n  financeiro: 'Você resolve dúvidas de boletos, pagamentos e vencimentos.',\n  suporte: 'Você ajuda o cliente a resolver problemas de conexão, um passo de cada vez.',\n};\n\nconst conversa = $('Ler triagem').first().json;\nconst faq = $input.all().map((item) => item.json).filter((row) => row.pergunta);\n\nconst system = [\n  `Você é o agente ${conversa.setor} do Provedor Exemplo e atende clientes pelo WhatsApp.`,\n  PERFIS[conversa.setor],\n  'Regras:',\n  '- Responda em português, em até 3 frases curtas e com tom cordial.',\n  '- Use só as informações do FAQ abaixo. Se a resposta não estiver nele, não invente: transfira para a equipe.',\n  '- Transfira também se o cliente pedir uma pessoa ou estiver irritado.',\n  'FAQ:',\n  ...faq.map((row) => `P: ${row.pergunta}\\nR: ${row.resposta}`),\n  'Responda só com JSON: {\"resposta\": \"texto para o cliente\", \"transferir\": true ou false}',\n].join('\\n');\n\nconst body = {\n  model: $env.OPENAI_MODEL || 'gpt-5-mini',\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: system },\n    ...conversa.historico.map(({ role, content }) => ({ role, content })),\n    { role: 'user', content: conversa.text },\n  ],\n};\n\nreturn [{ json: { ...conversa, body } }];"
+      },
+      "id": "df7f4100-ffb0-4ba6-a9ec-b73411a6fe59",
+      "name": "Montar agente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "2c3b195f-9270-403f-a544-75186cdd837d",
+      "name": "Agente do setor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        800
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const conversa = $('Montar agente').first().json;\n\nlet saida = {};\ntry {\n  saida = JSON.parse($json.choices[0].message.content);\n} catch {\n  saida = {};\n}\n\nconst resposta = typeof saida.resposta === 'string' ? saida.resposta.trim() : '';\n\nreturn [{\n  json: {\n    conversationId: conversa.conversationId,\n    setor: conversa.setor,\n    resumo: conversa.resumo,\n    historico: conversa.historico,\n    resposta,\n    // Sem resposta válida, quem responde é a equipe.\n    transferir: saida.transferir === true || !resposta,\n  },\n}];"
+      },
+      "id": "46cde475-1664-451c-a340-0745abe02158",
+      "name": "Ler resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b647348-997d-41da-aa5a-42cae7e81504",
+              "leftValue": "={{ $json.transferir }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "228cbdbd-81ca-40c0-a274-bfc6a45e46a0",
+      "name": "Transferir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// A IA falhou mesmo depois das novas tentativas: a conversa vai para uma pessoa.\nconst conversa = $('Juntar mensagens').first().json;\n\nreturn [{\n  json: {\n    conversationId: conversa.conversationId,\n    setor: 'humano',\n    resumo: `A IA não respondeu. Última mensagem do cliente: ${conversa.text}`.slice(0, 500),\n    historico: [],\n    resposta: '',\n  },\n}];"
+      },
+      "id": "aca86130-faf7-4013-a723-eeedbd4d93d5",
+      "name": "Falha na IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const caso = $json;\n\nreturn [{\n  json: {\n    conversationId: caso.conversationId,\n    setor: caso.setor,\n    resumo: caso.resumo,\n    historico: caso.historico ?? [],\n    text: caso.resposta || 'Vou te passar para a nossa equipe. Já mandei um resumo da conversa, então você não precisa repetir nada.',\n  },\n}];"
+      },
+      "id": "c6be051d-1a76-4600-a738-57d85ecd9021",
+      "name": "Preparar transferência",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HANDOFF_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conversationId: $json.conversationId, setor: $json.setor, resumo: $json.resumo, historico: $json.historico }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "0e9b47dd-42d4-4094-ab4f-eed59e2022a3",
+      "name": "Transferir para a equipe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        1040
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Chega aqui pela resposta do agente ou depois de uma transferência.\nconst transferiu = $('Preparar transferência').isExecuted;\nconst caso = transferiu\n  ? $('Preparar transferência').first().json\n  : { conversationId: $json.conversationId, text: $json.resposta };\n\nreturn [{ json: { conversationId: caso.conversationId, text: caso.text } }];"
+      },
+      "id": "b2b64929-aafa-46bc-a0b2-7b9cb971345e",
+      "name": "Preparar envio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.REPLY_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ conversationId: $json.conversationId, text: $json.text }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "c50a433c-1e6f-4a9c-a8e5-9d9e6eacfd91",
+      "name": "Enviar resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3080,
+        800
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mensagens (conversation_id, role, content, processed) VALUES ($1, 'assistant', $2, true);",
+        "options": {
+          "queryReplacement": "={{ [ $('Preparar envio').first().json.conversationId, $('Preparar envio').first().json.text ] }}"
+        }
+      },
+      "id": "8d37d642-7c7d-4821-acdf-bc803d9ccbbf",
+      "name": "Salvar resposta",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3300,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "chatbotPostgres1",
+          "name": "Postgres local"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar entrada": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "Já recebida?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder 400",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Já recebida?": {
+      "main": [
+        [
+          {
+            "node": "Primeira entrega?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Primeira entrega?": {
+      "main": [
+        [
+          {
+            "node": "Responder 202",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder duplicada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder 202": {
+      "main": [
+        [
+          {
+            "node": "É áudio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É áudio?": {
+      "main": [
+        [
+          {
+            "node": "Baixar áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Texto da mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar áudio": {
+      "main": [
+        [
+          {
+            "node": "Transcrever áudio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrever áudio": {
+      "main": [
+        [
+          {
+            "node": "Texto da mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Texto da mensagem": {
+      "main": [
+        [
+          {
+            "node": "Guardar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Marcar última",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar última": {
+      "main": [
+        [
+          {
+            "node": "Esperar o cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar o cliente": {
+      "main": [
+        [
+          {
+            "node": "Ler última",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler última": {
+      "main": [
+        [
+          {
+            "node": "Sou a última?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sou a última?": {
+      "main": [
+        [
+          {
+            "node": "Pegar pendentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pegar pendentes": {
+      "main": [
+        [
+          {
+            "node": "Juntar mensagens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Juntar mensagens": {
+      "main": [
+        [
+          {
+            "node": "Buscar histórico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar histórico": {
+      "main": [
+        [
+          {
+            "node": "Montar triagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar triagem": {
+      "main": [
+        [
+          {
+            "node": "Triagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triagem": {
+      "main": [
+        [
+          {
+            "node": "Ler triagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Falha na IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler triagem": {
+      "main": [
+        [
+          {
+            "node": "Pediu uma pessoa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pediu uma pessoa?": {
+      "main": [
+        [
+          {
+            "node": "Preparar transferência",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar no FAQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar no FAQ": {
+      "main": [
+        [
+          {
+            "node": "Montar agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar agente": {
+      "main": [
+        [
+          {
+            "node": "Agente do setor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente do setor": {
+      "main": [
+        [
+          {
+            "node": "Ler resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Falha na IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler resposta": {
+      "main": [
+        [
+          {
+            "node": "Transferir?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transferir?": {
+      "main": [
+        [
+          {
+            "node": "Preparar transferência",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Falha na IA": {
+      "main": [
+        [
+          {
+            "node": "Preparar transferência",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar transferência": {
+      "main": [
+        [
+          {
+            "node": "Transferir para a equipe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transferir para a equipe": {
+      "main": [
+        [
+          {
+            "node": "Preparar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar envio": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar resposta": {
+      "main": [
+        [
+          {
+            "node": "Salvar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

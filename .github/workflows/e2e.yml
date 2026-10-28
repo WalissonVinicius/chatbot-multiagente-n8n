@@ -1,0 +1,29 @@
+name: e2e
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Subir n8n, Postgres, Redis e serviços falsos
+        run: docker compose --env-file test/test.env --profile test up -d
+
+      - name: Importar e publicar o workflow
+        run: ./scripts/setup.sh --env-file test/test.env --profile test
+
+      - name: Teste de ponta a ponta
+        run: node test/e2e.mjs
+
+      - name: Logs do n8n
+        if: failure()
+        run: docker compose --env-file test/test.env --profile test logs n8n
