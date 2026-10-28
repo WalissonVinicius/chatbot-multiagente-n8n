@@ -1,0 +1,20 @@
+name: screenshot
+on: workflow_dispatch
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: docker compose --env-file test/test.env --profile test up -d
+      - run: ./scripts/setup.sh --env-file test/test.env --profile test
+      - run: mkdir -p docs && npm install --no-save playwright && npx playwright install --with-deps chromium
+      - run: node test/screenshot.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot
+          path: docs/*.png
